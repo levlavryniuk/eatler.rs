@@ -1,0 +1,7 @@
+[package]
+name = "reatler"
+version = "0.1.0"
+edition = "2021"
+author = "Ox4C656F leoyt109@gmail.com"
+
+[dependencies]
