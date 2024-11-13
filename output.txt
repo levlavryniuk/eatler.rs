@@ -1,0 +1,182 @@
+
+ File path: ./src/reatler.rs 
+ 
+use std::{
+    fs::File,
+    io::{Read, Write},
+    process::exit,
+};
+
+pub fn parse_gitignore() -> Vec<String> {
+    let mut ignore = Vec::new();
+    let mut file = match File::open(".gitignore") {
+        Ok(file) => file,
+        Err(_) => return ignore,
+    };
+    let mut buf = String::new();
+    match file.read_to_string(&mut buf) {
+        Ok(_) => (),
+        Err(_) => return ignore,
+    }
+
+    for line in buf.lines() {
+        ignore.push(line.to_string());
+        println!("Ignoring: {}", line);
+    }
+    ignore
+}
+
+use crate::dir::{scan_dir, ScanParams};
+pub fn parse_args(args: &[String]) -> &str {
+    match args.get(1) {
+        Some(str) => str,
+        None => "./",
+    }
+}
+
+pub fn run(args: &[String], params: ScanParams) {
+    let dir = parse_args(args);
+
+    let file_names = match scan_dir(dir, params) {
+        Ok(files) => files,
+        Err(e) => {
+            eprintln!("Error while scanning files:  {}", e);
+            exit(0);
+        }
+    };
+    add_files(&file_names).expect("Unable to write files");
+}
+
+fn add_files(file_names: &Vec<String>) -> Result<(), std::io::Error> {
+    let mut output_file = File::create("output.txt").expect("Error occured with output file");
+
+    for file_name in file_names {
+        if append_file_to_output(file_name, &mut output_file).is_err() {
+            println!("Unable to write {} to output", file_name)
+        }
+    }
+    Ok(())
+}
+
+fn append_file_to_output(file_name: &str, output_file: &mut File) -> Result<(), std::io::Error> {
+    println!("Inspecting {}", file_name);
+    let mut buf = String::new();
+    let mut source_file = File::open(file_name).expect("Can't open file for reading");
+    source_file
+        .read_to_string(&mut buf)
+        .expect("Can't read file to string");
+
+    let file_name_line = format!("\n File path: {} \n \n", file_name);
+    output_file
+        .write_all(file_name_line.as_bytes())
+        .expect("Can't write filename to output");
+    output_file
+        .write_all(buf.as_bytes())
+        .expect("Can't write file to output");
+    Ok(())
+}
+
+ File path: ./src/choice.rs 
+ 
+use std::io::Write;
+
+pub fn get_types() -> Vec<String> {
+    print!("\nWhich file types to include? (example: rs toml) ");
+    std::io::stdout().flush().expect("Could not flush stdin");
+    let mut buf = String::new();
+    std::io::stdin()
+        .read_line(&mut buf)
+        .expect("Unable to read from stdin");
+
+    let buf: Vec<String> = buf
+        .split(' ')
+        .map(|val| val.trim().to_string())
+        .map(|val| {
+            if val.starts_with('.') {
+                val
+            } else {
+                format!(".{}", val)
+            }
+        })
+        .collect();
+    buf
+}
+
+pub fn get_ignore() -> Vec<String> {
+    print!("\nWhich files/directories to ignore? (example: target dist .d.ts) ");
+    std::io::stdout().flush().expect("Could not flush stdin");
+    let mut buf = String::new();
+    std::io::stdin()
+        .read_line(&mut buf)
+        .expect("Unable to read from stdin");
+
+    let buf: Vec<String> = buf.split(' ').map(|val| val.trim().to_string()).collect();
+    buf
+}
+
+ File path: ./src/dir.rs 
+ 
+use std::fs::read_dir;
+pub struct ScanParams {
+    pub ignore: Vec<String>,
+    pub include: Vec<String>,
+}
+/// Checks if a file should be ignored in the scan
+fn check_ignore(file_name: &str, ignored: &[String]) -> bool {
+    ignored.iter().any(|ignored| *ignored == file_name)
+}
+/// Checks if a file should be included in the scan
+fn check_include(file_name: &str, included: &[String]) -> bool {
+    included
+        .iter()
+        .any(|included| file_name.ends_with(included))
+}
+/// Scans a directory for files that match the include and ignore parameters
+pub fn scan_dir(dirname: &str, params: ScanParams) -> std::io::Result<Vec<String>> {
+    let mut files: Vec<String> = Vec::new();
+    dir_helper(dirname, &mut files, &params)?;
+    Ok(files)
+}
+/// Helper function for scan_dir
+fn dir_helper(dirname: &str, files: &mut Vec<String>, params: &ScanParams) -> std::io::Result<()> {
+    let ScanParams { include, ignore } = params;
+    for entry in read_dir(dirname)? {
+        let entry = entry?;
+        let path = entry.path();
+        let file_name = entry.file_name().into_string().expect("Unlick");
+
+        let is_dir = path.is_dir();
+        let path = path.to_str().expect("Path is not valid unicode");
+
+        if check_ignore(&file_name, ignore) {
+            continue;
+        }
+
+        if is_dir {
+            dir_helper(path, files, params)?;
+        } else if check_include(&file_name, include) {
+            files.push(path.to_string());
+        }
+    }
+
+    Ok(())
+}
+
+ File path: ./src/main.rs 
+ 
+use dir::ScanParams;
+
+mod choice;
+mod dir;
+mod reatler;
+
+fn main() {
+    let args = std::env::args().collect::<Vec<String>>();
+    let include = choice::get_types();
+    let mut ignore = choice::get_ignore();
+    let gitignore = reatler::parse_gitignore();
+    ignore.extend(gitignore);
+    let params = ScanParams { include, ignore };
+
+    reatler::run(&args, params);
+}

@@ -18,6 +18,7 @@ pub fn parse_gitignore() -> Vec<String> {
 
     for line in buf.lines() {
         ignore.push(line.to_string());
+        println!("Ignoring: {} (gitignore)", line);
     }
     ignore
 }
