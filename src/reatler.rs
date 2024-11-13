@@ -4,6 +4,24 @@ use std::{
     process::exit,
 };
 
+pub fn parse_gitignore() -> Vec<String> {
+    let mut ignore = Vec::new();
+    let mut file = match File::open(".gitignore") {
+        Ok(file) => file,
+        Err(_) => return ignore,
+    };
+    let mut buf = String::new();
+    match file.read_to_string(&mut buf) {
+        Ok(_) => (),
+        Err(_) => return ignore,
+    }
+
+    for line in buf.lines() {
+        ignore.push(line.to_string());
+    }
+    ignore
+}
+
 use crate::dir::{scan_dir, ScanParams};
 pub fn parse_args(args: &[String]) -> &str {
     match args.get(1) {
