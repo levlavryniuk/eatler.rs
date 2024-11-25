@@ -1,45 +1,88 @@
-use std::fs::read_dir;
+use std::{fs::read_dir, path::Path};
+#[derive(Default)]
 pub struct ScanParams {
     pub ignore: Vec<String>,
     pub include: Vec<String>,
 }
-/// Checks if a file should be ignored in the scan
-fn check_ignore(file_name: &str, ignored: &[String]) -> bool {
-    ignored.iter().any(|ignored| *ignored == file_name)
-}
-/// Checks if a file should be included in the scan
-fn check_include(file_name: &str, included: &[String]) -> bool {
-    included
-        .iter()
-        .any(|included| file_name.ends_with(included))
-}
 /// Scans a directory for files that match the include and ignore parameters
-pub fn scan_dir(dirname: &str, params: ScanParams) -> std::io::Result<Vec<String>> {
+pub fn scan_dir(
+    dirname: &str,
+    params: ScanParams,
+    recursive: bool,
+) -> std::io::Result<Vec<String>> {
     let mut files: Vec<String> = Vec::new();
-    dir_helper(dirname, &mut files, &params)?;
+    dir_helper(dirname, &mut files, &params, recursive)?;
     Ok(files)
 }
-/// Helper function for scan_dir
-fn dir_helper(dirname: &str, files: &mut Vec<String>, params: &ScanParams) -> std::io::Result<()> {
+
+fn dir_helper(
+    dirname: &str,
+    files: &mut Vec<String>,
+    params: &ScanParams,
+    recursive: bool,
+) -> std::io::Result<()> {
     let ScanParams { include, ignore } = params;
     for entry in read_dir(dirname)? {
         let entry = entry?;
         let path = entry.path();
-        let file_name = entry.file_name().into_string().expect("Unlick");
-
         let is_dir = path.is_dir();
-        let path = path.to_str().expect("Path is not valid unicode");
+        let path_str = path.to_string_lossy().to_string();
 
-        if check_ignore(&file_name, ignore) {
+        if is_ignored(&path_str, ignore) {
             continue;
         }
 
-        if is_dir {
-            dir_helper(path, files, params)?;
-        } else if check_include(&file_name, include) {
-            files.push(path.to_string());
+        if is_dir && recursive {
+            dir_helper(&path_str, files, params, true)?;
+        } else if is_included(&path_str, include) {
+            files.push(path_str);
         }
     }
 
     Ok(())
+}
+
+/// Normalize a gitignore pattern to handle different path formats
+fn normalize_pattern(pattern: &str) -> String {
+    let pattern = pattern.trim();
+    let pattern = pattern.strip_prefix("./").unwrap_or(pattern);
+    let pattern = pattern.strip_prefix('/').unwrap_or(pattern);
+    pattern.to_string()
+}
+
+/// Checks if a file should be ignored based on gitignore patterns
+fn is_ignored(path: &str, ignored: &[String]) -> bool {
+    let path = Path::new(path);
+    let path_str = path.to_string_lossy();
+
+    let file_name = path
+        .file_name()
+        .map(|s| s.to_string_lossy())
+        .unwrap_or_default();
+
+    for pattern in ignored {
+        let normalized_pattern = normalize_pattern(pattern);
+
+        if path_str.contains(&normalized_pattern) {
+            return true;
+        }
+
+        if file_name.contains(&normalized_pattern) {
+            return true;
+        }
+    }
+
+    false
+}
+/// Updated is_included to match against the full path
+fn is_included(path: &str, included: &[String]) -> bool {
+    let path = Path::new(path);
+    if let Some(file_name) = path.file_name() {
+        let file_name = file_name.to_string_lossy();
+        included
+            .iter()
+            .any(|included| file_name.ends_with(included))
+    } else {
+        false
+    }
 }
