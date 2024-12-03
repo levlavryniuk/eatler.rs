@@ -165,6 +165,10 @@ impl ProjectType {
                 ".eslintrc",
                 ".prettierrc",
                 ".babelrc",
+                ".svelte",
+                ".vue",
+                ".nuxt",
+                ".astro",
             ],
             Self::Rust => vec![
                 ".rs",
