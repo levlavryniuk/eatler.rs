@@ -173,7 +173,6 @@ impl ProjectType {
             Self::Rust => vec![
                 ".rs",
                 "Cargo.toml",
-                "Cargo.lock",
                 "build.rs",
                 ".rustfmt.toml",
                 ".clippy.toml",
