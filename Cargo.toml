@@ -1,6 +1,6 @@
 [package]
 name = "reatler"
-version = "0.4.3"
+version = "0.5.3"
 edition = "2021"
 description = "A thing that can bundle files into single one"
 license = "MIT"
