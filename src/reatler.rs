@@ -9,138 +9,165 @@ use std::{
     process::exit,
 };
 
+use crate::smart;
 pub fn parse_gitignore() -> Vec<String> {
     let mut ignore = Vec::new();
-    let mut file = match File::open(".gitignore") {
-        Ok(file) => file,
-        Err(_) => return ignore,
-    };
-    let mut buf = String::new();
-    match file.read_to_string(&mut buf) {
-        Ok(_) => (),
-        Err(_) => return ignore,
-    }
-
-    for line in buf.lines() {
-        if !line.is_empty() {
-            ignore.push(line.to_string());
+    if let Ok(mut f) = File::open(".gitignore") {
+        let mut buf = String::new();
+        if f.read_to_string(&mut buf).is_ok() {
+            buf.lines()
+                .filter(|l| !l.trim().is_empty())
+                .for_each(|l| ignore.push(l.to_string()));
         }
     }
     ignore
 }
 
-pub fn parse_args(args: &[String]) -> &str {
-    match args.get(1) {
-        Some(str) => str,
-        None => "./",
+/// Returns (target_dir, optional_smart_query)
+fn parse_args(args: &[String]) -> (String, Option<String>) {
+    let mut dir = "./".to_string();
+    let mut smart_q = None;
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--smart" => {
+                if let Some(q) = args.get(i + 1) {
+                    smart_q = Some(q.clone());
+                    i += 2;
+                } else {
+                    eprintln!("--smart requires a query");
+                    exit(1);
+                }
+            }
+            flag if flag == "--manual" || flag == "-m" => {
+                // leave it to get_scan_type()
+                i += 1;
+            }
+            other if other.starts_with('-') => {
+                // ignore unknown flags
+                i += 1;
+            }
+            path => {
+                dir = path.to_string();
+                i += 1;
+            }
+        }
     }
+    (dir, smart_q)
 }
 
 pub fn run(args: &[String]) {
-    let dir = parse_args(args);
-    let is_manual = matches!(get_scan_type(args), ScanType::Manual);
+    // 1) parse args
+    let (mut dir, smart_q) = parse_args(args);
 
+    // 2) maybe do smart lookup
+    if let Some(query) = smart_q {
+        let gitignore = parse_gitignore();
+        let matches = match smart::find_directories(&dir, &query, &gitignore) {
+            Ok(v) if !v.is_empty() => v,
+            _ => {
+                eprintln!("No directories matching “{}” found under {}", query, dir);
+                exit(1)
+            }
+        };
+        let choice = smart::choose_directory(&matches).unwrap_or_else(|| {
+            eprintln!("Invalid selection, aborting.");
+            exit(1)
+        });
+        println!("\n→ Assembling files under: {}\n", choice);
+        dir = choice;
+    }
+
+    // 3) manual vs auto
+    let is_manual = matches!(get_scan_type(args), ScanType::Manual);
     let params = if is_manual {
         get_scan_params_manual()
     } else {
-        match get_scan_params_auto(dir) {
-            Some(p) => p,
-            None => {
-                println!("Type autodiscovery failed, fallback to manual selection");
-                get_scan_params_manual()
-            }
-        }
+        get_scan_params_auto(&dir).unwrap_or_else(|| {
+            println!("Auto-detection failed, falling back to manual.");
+            get_scan_params_manual()
+        })
     };
 
-    let file_names = match scan_dir(dir, params, true) {
-        Ok(files) => files,
+    // 4) scan
+    let files = match scan_dir(&dir, params, true) {
+        Ok(v) => v,
         Err(e) => {
-            eprintln!("Error while scanning files:  {}", e);
-            exit(0);
+            eprintln!("Error scanning files: {}", e);
+            exit(1)
         }
     };
-    for file in &file_names {
-        println!("+{}", file)
+    for f in &files {
+        println!("+{}", f);
     }
-    add_files(&file_names).expect("Unable to write files");
+
+    // 5) output
+    if let Err(e) = add_files(&files) {
+        eprintln!("Error writing output: {}", e);
+        exit(1)
+    }
 }
 
-fn add_files(file_names: &Vec<String>) -> Result<(), std::io::Error> {
-    let mut output_file = File::create("output.txt").expect("Error occured with output file");
-
-    for file_name in file_names {
-        if append_file_to_output(file_name, &mut output_file).is_err() {
-            println!("Unable to write {} to output", file_name)
-        }
+fn add_files(files: &[String]) -> Result<(), std::io::Error> {
+    let mut out = File::create("output.txt")?;
+    for f in files {
+        append_file_to_output(f, &mut out)?;
     }
     Ok(())
 }
 
 fn append_file_to_output(file_name: &str, output_file: &mut File) -> Result<(), std::io::Error> {
     let mut buf = String::new();
-    let mut source_file = File::open(file_name).expect("Can't open file for reading");
-    source_file
-        .read_to_string(&mut buf)
-        .expect("Can't read file to string");
-
-    let file_name_line = format!("\n File path: {} \n \n", file_name);
-    output_file
-        .write_all(file_name_line.as_bytes())
-        .expect("Can't write filename to output");
-    output_file
-        .write_all(buf.as_bytes())
-        .expect("Can't write file to output");
+    let mut src = File::open(file_name)?;
+    src.read_to_string(&mut buf)?;
+    writeln!(output_file, "\n File path: {}\n", file_name)?;
+    output_file.write_all(buf.as_bytes())?;
     Ok(())
 }
-fn get_scan_params_manual() -> ScanParams {
-    let include = choice::get_types();
-    let mut ignore = choice::get_ignore();
-    let gitignore = parse_gitignore();
-    ignore.extend(gitignore);
-    ScanParams { include, ignore }
-}
-fn get_scan_params_auto(dir: &str) -> Option<ScanParams> {
-    let mut params = ScanParams::default();
-    let gitignore = parse_gitignore();
 
-    let tmp_params = ScanParams {
+fn get_scan_params_manual() -> ScanParams {
+    let mut ignore = choice::get_ignore();
+    ignore.extend(parse_gitignore());
+    ScanParams {
+        include: choice::get_types(),
+        ignore,
+    }
+}
+
+fn get_scan_params_auto(dir: &str) -> Option<ScanParams> {
+    let gitignore = parse_gitignore();
+    let dry = ScanParams {
         include: vec!["".into()],
         ignore: gitignore.clone(),
     };
-
-    let files = scan_dir(dir, tmp_params, false).unwrap_or_default();
-    let types = get_project_types(&files)?;
-
+    let files = scan_dir(dir, dry, false).unwrap_or_default();
+    let mut types = get_project_types(&files)?;
+    types.dedup();
+    let mut params = ScanParams::default();
     params.ignore.extend(gitignore);
-    params.include.extend(
-        types
-            .iter()
-            .flat_map(|project_type| project_type.get_files())
-            .map(|p_t| p_t.to_string()),
-    );
+    params
+        .include
+        .extend(types.iter().flat_map(|t| t.get_files()).map(String::from));
     Some(params)
 }
 
-fn get_project_types(files: &Vec<String>) -> Option<Vec<ProjectType>> {
-    let mut types: Vec<ProjectType> = Vec::new();
+fn get_project_types(files: &[String]) -> Option<Vec<ProjectType>> {
+    let mut types = Vec::new();
     for file in files {
-        match file.split("/").last() {
-            Some(striped) => types.extend(ProjectType::from(striped)),
-            None => println!("Bad shit happned with {}", file),
+        if let Some(name) = file.rsplit('/').next() {
+            types.extend(ProjectType::from(name));
         }
     }
-
     types.dedup();
-
     if types.is_empty() {
         return None;
     }
     println!(
-        "A {} project found!",
+        "Detected project type(s): {}",
         types
             .iter()
             .map(|t| t.to_string())
-            .collect::<Vec<String>>()
+            .collect::<Vec<_>>()
             .join(", ")
     );
     Some(types)
