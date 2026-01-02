@@ -1,12 +1,15 @@
+use arboard::{Clipboard, SetExtLinux};
+
 use crate::{
     choice::{self, get_scan_type, ScanType},
     dir::{scan_dir, ScanParams},
     project_type::ProjectType,
 };
 use std::{
-    fs::File,
+    fs::{read_to_string, File},
     io::{Read, Write},
     process::exit,
+    time::Duration,
 };
 
 use crate::smart;
@@ -113,6 +116,15 @@ fn add_files(files: &[String]) -> Result<(), std::io::Error> {
     for f in files {
         append_file_to_output(f, &mut out)?;
     }
+    if let Ok(mut clip) = Clipboard::new() {
+        println!("Copied to clipboard\nPress ctrl+c when finished pasting");
+        match clip.set().wait().file_list(&["output.txt"]) {
+            Ok(_) => println!("Copied file path"),
+            Err(e) => println!("Error when tried to copy file to clipboard {}", e),
+        };
+    } else {
+        println!("Can't reach clipboard");
+    };
     Ok(())
 }
 

@@ -1,9 +1,10 @@
 [package]
 name = "reatler"
-version = "0.5.4"
+version = "0.6.4"
 edition = "2021"
 description = "A thing that can bundle files into single one"
 license = "MIT"
 
 [dependencies]
 walkdir = "2"
+arboard = { version = "3.6.1", features = ["wayland-data-control"] }
