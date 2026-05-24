@@ -1,4 +1,4 @@
-use arboard::{Clipboard, SetExtLinux};
+use arboard::Clipboard;
 
 use crate::{
     choice::{self, get_scan_type, ScanType},
@@ -6,10 +6,10 @@ use crate::{
     project_type::ProjectType,
 };
 use std::{
-    fs::{read_to_string, File},
+    fs::File,
     io::{Read, Write},
+    path::Path,
     process::exit,
-    time::Duration,
 };
 
 use crate::smart;
@@ -112,13 +112,17 @@ pub fn run(args: &[String]) {
 }
 
 fn add_files(files: &[String]) -> Result<(), std::io::Error> {
-    let mut out = File::create("output.txt")?;
+    let mut map = serde_json::Map::new();
     for f in files {
-        append_file_to_output(f, &mut out)?;
+        let content = read_file_content(f)?;
+        map.insert(f.clone(), serde_json::Value::String(content));
     }
+    let json_str = serde_json::to_string_pretty(&map)?;
+    let mut out = File::create("output.json")?;
+    out.write_all(json_str.as_bytes())?;
     if let Ok(mut clip) = Clipboard::new() {
         println!("Copied to clipboard\nPress ctrl+c when finished pasting");
-        match clip.set().wait().file_list(&["output.txt"]) {
+        match clip.set().file_list(&[Path::new("output.json")]) {
             Ok(_) => println!("Copied file path"),
             Err(e) => println!("Error when tried to copy file to clipboard {}", e),
         };
@@ -128,13 +132,11 @@ fn add_files(files: &[String]) -> Result<(), std::io::Error> {
     Ok(())
 }
 
-fn append_file_to_output(file_name: &str, output_file: &mut File) -> Result<(), std::io::Error> {
+fn read_file_content(file_name: &str) -> Result<String, std::io::Error> {
     let mut buf = String::new();
     let mut src = File::open(file_name)?;
     src.read_to_string(&mut buf)?;
-    writeln!(output_file, "\n File path: {}\n", file_name)?;
-    output_file.write_all(buf.as_bytes())?;
-    Ok(())
+    Ok(buf)
 }
 
 fn get_scan_params_manual() -> ScanParams {
