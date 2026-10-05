@@ -1,3 +1,5 @@
+use arboard::Clipboard;
+
 use crate::{
     choice::{self, get_scan_type, ScanType},
     dir::{scan_dir, ScanParams},
@@ -6,6 +8,7 @@ use crate::{
 use std::{
     fs::File,
     io::{Read, Write},
+    path::PathBuf,
     process::exit,
 };
 
@@ -108,12 +111,40 @@ pub fn run(args: &[String]) {
     }
 }
 
-fn add_files(files: &[String]) -> Result<(), std::io::Error> {
-    let mut out = File::create("output.txt")?;
+fn add_files(files: &[String]) -> Result<PathBuf, std::io::Error> {
+    let out_path = PathBuf::from("output.txt")
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from("output.txt"));
+    let mut out = File::create(&out_path)?;
     for f in files {
         append_file_to_output(f, &mut out)?;
     }
-    Ok(())
+
+    if let Ok(mut clipboard) = Clipboard::new() {
+        let _ = clipboard.set_text(out_path.to_string_lossy().to_string());
+    }
+
+    let gnome_payload = format!("copy\nfile://{}", out_path.canonicalize()?.display());
+
+    if std::process::Command::new("wl-copy")
+        // .arg("--type")
+        // .arg("x-special/gnome-copied-files")
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            if let Some(mut stdin) = child.stdin.take() {
+                stdin.write_all(gnome_payload.as_bytes())?;
+            }
+            child.wait()?;
+            Ok(())
+        })
+        .is_ok()
+    {
+        return Ok(out_path);
+    }
+
+    Ok(out_path)
 }
 
 fn append_file_to_output(file_name: &str, output_file: &mut File) -> Result<(), std::io::Error> {
