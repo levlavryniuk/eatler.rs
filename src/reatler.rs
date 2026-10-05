@@ -8,7 +8,7 @@ use crate::{
 use std::{
     fs::File,
     io::{Read, Write},
-    path::PathBuf,
+    path::Path,
     process::exit,
 };
 
@@ -111,17 +111,19 @@ pub fn run(args: &[String]) {
     }
 }
 
-fn add_files(files: &[String]) -> Result<PathBuf, std::io::Error> {
-    let out_path = PathBuf::from("output.txt")
-        .canonicalize()
-        .unwrap_or_else(|_| PathBuf::from("output.txt"));
-    let mut out = File::create(&out_path)?;
+fn add_files(files: &[String]) -> Result<(), std::io::Error> {
+    let mut map = serde_json::Map::new();
     for f in files {
-        append_file_to_output(f, &mut out)?;
+        let content = read_file_content(f)?;
+        map.insert(f.clone(), serde_json::Value::String(content));
     }
+    let json_str = serde_json::to_string_pretty(&map)?;
+    let out_path = Path::new("output.json");
+    let mut out = File::create(out_path)?;
+    out.write_all(json_str.as_bytes())?;
 
-    if let Ok(mut clipboard) = Clipboard::new() {
-        let _ = clipboard.set_text(out_path.to_string_lossy().to_string());
+    if let Ok(mut clip) = Clipboard::new() {
+        let _ = clip.set_text(out_path.canonicalize()?.to_string_lossy().to_string());
     }
 
     let gnome_payload = format!("copy\nfile://{}", out_path.canonicalize()?.display());
@@ -141,19 +143,17 @@ fn add_files(files: &[String]) -> Result<PathBuf, std::io::Error> {
         })
         .is_ok()
     {
-        return Ok(out_path);
+        return Ok(());
     }
 
-    Ok(out_path)
+    Ok(())
 }
 
-fn append_file_to_output(file_name: &str, output_file: &mut File) -> Result<(), std::io::Error> {
+fn read_file_content(file_name: &str) -> Result<String, std::io::Error> {
     let mut buf = String::new();
     let mut src = File::open(file_name)?;
     src.read_to_string(&mut buf)?;
-    writeln!(output_file, "\n File path: {}\n", file_name)?;
-    output_file.write_all(buf.as_bytes())?;
-    Ok(())
+    Ok(buf)
 }
 
 fn get_scan_params_manual() -> ScanParams {

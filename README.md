@@ -1,6 +1,6 @@
 # 📦 reatler
 
-**reatler** is a CLI tool that scans a project directory, detects its type, and bundles matching files into a single output file (`output.txt`).  
+**reatler** is a CLI tool that scans a project directory, detects its type, and bundles matching files into a single output file (`output.json`).  
 It supports **automatic project type detection** (Rust, JS, Python, etc.) or **manual selection** of file types, with optional smart directory search.
 
 ---
@@ -11,7 +11,7 @@ It supports **automatic project type detection** (Rust, JS, Python, etc.) or **m
 - 🧠 **Automatic project type detection** based on common project files (`Cargo.toml`, `package.json`, etc.).
 - 🛠 **Manual mode** for custom file type and ignore patterns.
 - 📂 **.gitignore support** — automatically excludes ignored files.
-- 📜 **Single-file bundling** — concatenates all matched files into `output.txt`.
+- 📜 **Single-file bundling** — bundles all matched files into `output.json`.
 - ⚡ **Fast scanning** with optional `fd` integration.
 
 ---
@@ -54,7 +54,7 @@ reatler .
 
 - Detects project type (e.g., Rust, JS, Python).
 - Includes relevant files automatically.
-- Writes concatenated content to `output.txt`.
+- Writes bundled content to `output.json`.
 
 #### 2️⃣ Manual mode
 
@@ -80,4 +80,11 @@ reatler --smart api
 
 ## 📂 Output format
 
-`output.txt` will contain:
+`output.json` contains a JSON object where each key is the matched file path and each value is the full contents of that file:
+
+```json
+{
+  "src/main.rs": "fn main() { ... }",
+  "Cargo.toml": "[package]\\nname = ..."
+}
+```
